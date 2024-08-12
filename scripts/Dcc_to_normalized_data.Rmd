@@ -258,3 +258,10 @@ print(seuratObj.tmp@meta.data)
 
 ```
 
+
+```{r DE Block}
+
+library(DESeq2)
+
+```
+
