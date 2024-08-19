@@ -5,96 +5,48 @@ date: "2024-08-07"
 output: html_document
 ---
 
-Goal of this script is to write a document for the downstream QC process
-
-## Technical signal 
-Read threshold
-Want segments with less than 1000 raw reads
-
-Aligned reads
-80% raw read aligned
-*If failed this nto great. Omit from analysis. 
-
-Sequnecing Saturation - qdequately sequenced the library. Not confident you have captured. Might indicate you have seqeunced it enough. 
-50%
-*if not passed, need to also omit. 
-
-Want to adjust the Nuclei Count
-Surface are et minumum to 1800
-
-## Technical signal 
-
-
-Stiched - %
-realted to the alignment of primers. 
-
-## We have done the QC on the samples.
-On the point and clide
-Omited 5, did not exclude by nuclei count. 
-
-
-# Biological Probe QC
-leave on the default parameters.
-Looks at if probes are consitent across ROIs. 
-All the probes passed. 
-
-Outcome- keeping all the probes in the dataset.
-
-Coudl be more stringent - but do not do.
-
-# segements = ROIS.
-Don't filter ROIs at this stage.
-
-# Step 3 - filter the target (genes) for each ROIs
-This would this be donw in R.
-High signal with low variablility.
-Ram recommends the keeping the targets that 5%. Remvoing the highest variability and dn lowest number. 
-Set to the Higher of LOQ and user defined value.
-
-We set to 2% which leaves the about 10,000 genes. 
-
-#Next step don't use the data normalization. 
-
-Nanostring recommend the Q3 normalization strategy. looking at 75th quartile.
-The low sized ones might be problemnation. Number of counts and the spread of them. 
-
-
-# there are 19963
-# you are not sequencing directly the RNA moelcule but sequecning the probe that was bound to the RNA molecule. 
-
-
-# Now try to do this:
-
-What we got:
-* DCC files - Scott groups do seqeuncing and then they processing and created a DCC file for us. Input fastq and output DCC. 
-* PKC file - from nanostring - connects probe ID to a target gene.
-* fastq files - get from Scott Kennedy - do it now rather than forget. 
-* High resolution image of the GeoMX images. 
-* library readout - information sent on libraries to Scott Kennedy.
-* a version of normalization. 
-
-# Theo Bammler
-
-Referred by Ram.
-They do end-to-end analysis. 
-3000 - 5000 - For end to end analysis. 
-There might be better methods for normalization. 
-
-
+Goal:
+Create GeoMX Seurat object and perform DE analysis
+# Load in and normalize data
 ```{r load the libraies }
-
-```
-
-
-```{r Load the datafile}
-
 library(here)
 library(GeomxTools)
 library(CellMembrane)
+library(DESeq2)
+library(Seurat)
+#load or download the 'usethis' package.
+pacman::p_load("usethis")
+pacman::p_load(BiocManager, devtools)
+```
+
+```{r Load Cell Membrane if necessary}
+if (! ("pacman" %in% installed.packages()[,"Package"])) {
+  install.packages('pacman')
+}
+#load or download the 'usethis' package.
+pacman::p_load("usethis")
+
+
+usethis::create_github_token()
+
+gitcreds::gitcreds_set()
+
+pacman::p_load(BiocManager, devtools)
+
+# Make sure to update your Rprofile to include Bioconductor repos, such as adding this line to ~/.Rprofile:
+local({options(repos = BiocManager::repositories())})
+
+#Latest version:
+devtools::install_github(repo = 'bimberlabinternal/cellmembrane', dependencies = TRUE, upgrade = 'always')
+
+
+```
+
+```{r Load the datafile}
 
 download_directory <- here::here('raw_data/dcc_files/DCC-20240715')
 
-  # Point the readNanoStringGeoMxSet function to the directory containing DCC files from this plate
+# Point the readNanoStringGeoMxSet function to the directory containing DCC files from this plate
 dccFiles <- dir(download_directory, pattern = "\\w*.dcc$", full.names = TRUE)
 #dccFiles <- download_directory
   
@@ -130,43 +82,10 @@ dccFiles <- dir(download_directory, pattern = "\\w*.dcc$", full.names = TRUE)
   
 seuratObj.tmp@meta.data # this is our normal dataframte
   
-
-
 ```
 
+```{r Normalize with CellMembrane and create Seurate object}
 
-```{r Load Cell Membrane}
-if (! ("pacman" %in% installed.packages()[,"Package"])) {
-  install.packages('pacman')
-}
-#load or download the 'usethis' package.
-pacman::p_load("usethis")
-
-
-usethis::create_github_token()
-
-gitcreds::gitcreds_set()
-
-pacman::p_load(BiocManager, devtools)
-
-# Make sure to update your Rprofile to include Bioconductor repos, such as adding this line to ~/.Rprofile:
-local({options(repos = BiocManager::repositories())})
-
-#Latest version:
-devtools::install_github(repo = 'bimberlabinternal/cellmembrane', dependencies = TRUE, upgrade = 'always')
-
-
-```
-
-
-```{r}
-
-formula = 0 + Sex * Location # within infected
-```
-
-
-```{r}
-library(Seurat)
 # Normalization with CellMemraben - there is the normalization process and there is not.
 # Fit a model hat is sensitive to the things that you want to take into account. 
 #This does a  library sized tranformation - transcript per million reads per library.
@@ -200,7 +119,7 @@ seuratObj.tmp <- RunPCA(seuratObj.tmp)
   
 ```
 
-```{r}
+```{r Lookt at Seurate features for PCA plots}
 
 print(seuratObj.tmp@meta.data)
 
@@ -212,12 +131,13 @@ Seurat::FeaturePlot(pbmc_small, features = 'Cyp4a12a')
 
 ```
 
-# Next step
-data harvesting to set up Deseq2.
-```{r DE Block}
-# need matrix and metadata:
+# Next step: Preliminary evaluation of analysis models.
 
-library(DESeq2)
+Goal is to data harvesting to set up Deseq2.
+potential formulte: formula = 0 + Sex * Location # within infected
+
+```{r DE  with an intercept model - all variables}
+# need matrix and metadata:
 cts <- Seurat::GetAssayData(seuratObj.tmp, layer = "counts")
 coldata <- seuratObj.tmp@meta.data
 
@@ -230,12 +150,15 @@ dds <- DESeqDataSetFromMatrix(countData = round(as.matrix(cts),0),
 #0 + Liver_zone*Type # fiting these and getting volcano plots
 
 dds <- DESeq(dds)
-resultsNames(dds) # lists the 
-
+resultsNames(dds) # lists of comparions:
+#"Intercept"                  "Group_M_vs_F"               "Group_ORX_vs_F"             "ROI_size_200um_vs_100um"   
+ #[5] "ROI_size_50um_vs_100um"     "ROI_size_75um_vs_100um"     "Liver_zone_PC_vs_IZ"        "Liver_zone_PP_vs_IZ"       
+ #[9] "Type_mock_vs_bystander"     "Type_schizont_vs_bystander"
 
 ```
 
-```{r Without the intercept}
+```{r DE without the intercept - all variables}
+
 dds2 <- DESeqDataSetFromMatrix(countData = round(as.matrix(cts),0),
                              colData = coldata,
                              design= ~ Group + ROI_size + Liver_zone + Type)
@@ -244,16 +167,9 @@ dds2 <- DESeqDataSetFromMatrix(countData = round(as.matrix(cts),0),
 dds2 <- DESeq(dds2)
 resultsNames(dds2) # lists the groups:
 
-#"Intercept"                  "Group_M_vs_F"               "Group_ORX_vs_F"             "ROI_size_200um_vs_100um"   
- #[5] "ROI_size_50um_vs_100um"     "ROI_size_75um_vs_100um"     "Liver_zone_PC_vs_IZ"        "Liver_zone_PP_vs_IZ"       
- #[9] "Type_mock_vs_bystander"     "Type_schizont_vs_bystander"
-
 ```
 
-
-
-
-``` {r running the comparisons}
+``` {r Running the comparisons}
 res2 <- results(dds2, name="Group_M_vs_F") 
 res2 <- lfcShrink(dds2, coef= c("Group_M_vs_F"), type="apeglm")
 
@@ -265,11 +181,13 @@ res <- lfcShrink(dds, coef= c("GroupM"), type="apeglm")
 # look at it:
 res
 # Change versus global mean
-
 # Male versus female
 
 ```
 
+Create volcano plots from some of the comparions
+
+Function to make volcano plots (pulled from GW code and altered from edgeR to DeSeq2)
 ```{r Function to perform DE expression and volcano plot}
 #' @title PerformDifferentialExpression
 #'
@@ -348,8 +266,10 @@ PerformDifferentialExpression <- function(dds, contrast_name, logFC_threshold = 
 
 ```
 
-```{r }
-PerformDifferentialExpression(dds, "Typemock")
+```{r Create a Volcano plot with function}
+
+PerformDifferentialExpression(dds, "Typemock") # Add comparison of interest. 
+
 ```
 
 Create volcano plots based on Deseq outcomes
@@ -363,9 +283,8 @@ https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DES
 
 Checking for positive controls & interactions. 
 
-
-
-```{r Making Volcano plots}
+### Summarize results from initial DE investigations with an upset plot. 
+```{r GW to paste upset plot here}
 
 
 

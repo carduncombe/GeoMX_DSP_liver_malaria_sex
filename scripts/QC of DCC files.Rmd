@@ -18,6 +18,7 @@ library(here)
 library(GeomxTools)
 
 ```
+
 ```{r Prepare GeoMx object}
 download_directory <- here::here('raw_data/dcc_files/DCC-20240715')
 
